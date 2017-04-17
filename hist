@@ -5,6 +5,8 @@ HISTORIAN_SRC=${HISTORIAN_SRC-"${HOME}/.bash_history"}
 HISTORIAN_DB=${HISTORIAN_DB-"${HOME}/.historian.db"}
 HISTORIAN_SQLITE3=${HISTORIAN_SQLITE3-"$(which sqlite3)"}
 
+SEPARATOR=$(echo -e "\x01")
+
 usage() {
     echo "Usage: hist <subcommand>" >&2
     echo "subcommands:" >&2
@@ -80,7 +82,7 @@ cmd_import() {
         INSERT INTO variables(key, value)
             SELECT 'items', COUNT(*) FROM history;
         CREATE TEMPORARY TABLE history_import (line TEXT);
-.separator $(echo -e "\x01")
+.separator ${SEPARATOR}
 .import ${HISTORIAN_SRC} history_import
         INSERT OR IGNORE INTO history(command, timestamp)
             SELECT line, NULL FROM history_import;
