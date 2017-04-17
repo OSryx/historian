@@ -7,6 +7,11 @@ HISTORIAN_SQLITE3=${HISTORIAN_SQLITE3-"$(which sqlite3)"}
 
 SEPARATOR=$(echo -e "\x01")
 
+# Other ENV parameters:
+#
+# - ZSH_EXTENDED_HISTORY: if set, parses HISTORIAN_SRC using zsh's
+#   EXTENDED_HISTORY format
+
 usage() {
     echo "Usage: hist <subcommand>" >&2
     echo "subcommands:" >&2
@@ -76,6 +81,14 @@ cmd_import() {
     preflight_check;
     ensure_db_exists;
 
+    if [ -n "${ZSH_EXTENDED_HISTORY}" ]; then
+        _import_zsh_extended_history;
+    else
+        _import_default;
+    fi
+}
+
+_import_default() {
     ( cat <<SQL
         CREATE TEMPORARY TABLE variables
             (key TEXT, value INTEGER);
@@ -86,6 +99,29 @@ cmd_import() {
 .import ${HISTORIAN_SRC} history_import
         INSERT OR IGNORE INTO history(command, timestamp)
             SELECT line, NULL FROM history_import;
+        UPDATE variables
+            SET value = -1 * value + (SELECT COUNT(*) FROM history); -- lol subtraction
+        SELECT 'Imported ' || value || ' item(s).' FROM variables WHERE key = 'items';
+SQL
+    ) | "${HISTORIAN_SQLITE3}" "${HISTORIAN_DB}";
+}
+
+# http://zsh.sourceforge.net/Doc/Release/Options.html#History
+_import_zsh_extended_history() {
+    local tmpdir=$(mktemp -d)
+    tmp_src=${tmpdir}/$(basename $HISTORIAN_SRC)
+    sed -e 's/^: \([0-9][0-9]*\):\([0-9][0-9]*\);/\1'${SEPARATOR}'/g' ${HISTORIAN_SRC} \
+        > ${tmp_src}
+    ( cat <<SQL
+        CREATE TEMPORARY TABLE variables
+            (key TEXT, value INTEGER);
+        INSERT INTO variables(key, value)
+            SELECT 'items', COUNT(*) FROM history;
+        CREATE TEMPORARY TABLE history_import (timestamp INTEGER, command TEXT);
+.separator ${SEPARATOR}
+.import ${tmp_src} history_import
+        INSERT OR IGNORE INTO history(timestamp, command)
+            SELECT timestamp, command FROM history_import;
         UPDATE variables
             SET value = -1 * value + (SELECT COUNT(*) FROM history); -- lol subtraction
         SELECT 'Imported ' || value || ' item(s).' FROM variables WHERE key = 'items';
